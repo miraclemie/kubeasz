@@ -20,7 +20,7 @@ Cluster setups:
     destroy     <cluster>            to destroy the k8s cluster
     backup      <cluster>            to backup the cluster state (etcd snapshot)
     restore     <cluster>            to restore the cluster state from backups
-    start-aio		             to quickly setup an all-in-one cluster with 'default' settings
+    start-aio		             to quickly setup an all-in-one cluster with default settings
 
 Cluster ops:
     add-etcd    <cluster>  <ip>      to add a etcd-node to the etcd cluster
@@ -31,6 +31,7 @@ Cluster ops:
     del-node    <cluster>  <ip>      to delete a work node from the k8s cluster
 
 Extra operation:
+    kca-renew   <cluster>            to force renew CA certs and all the other certs (with caution)
     kcfg-adm    <cluster>  <args>    to manage client kubeconfig of the k8s cluster
 
 Use "ezctl help <command>" for more information about a given command.
@@ -79,6 +80,11 @@ function help-info() {
             ;;
         (del-node)
             echo -e "read more > 'https://github.com/easzlab/kubeasz/blob/master/docs/op/op-node.md'"
+            ;;
+        (kca-renew)
+	    echo -e "WARNNING: this command should be used with caution"
+	    echo -e "force to recreate CA certs and all of the others certs used in the cluster"
+	    echo -e "it should be used only when the admin.conf leaked"
             ;;
         (kcfg-adm)
 	    usage-kcfg-adm
@@ -132,7 +138,7 @@ EOF
 
 function new() {
     # check if already existed
-    [[ -d "clusters/$1" ]] && { logger error "cluster:$1 already existed, if cluster:$1 setup failed, try 'rm -rf clusters/$1' first!"; exit 1; }
+    [[ -d "clusters/$1" ]] && { logger error "cluster:$1 already existed, if cluster:$1 setup failed, try 'rm -rf $BASE/clusters/$1' first!"; exit 1; }
 
     logger debug "generate custom cluster files in $BASE/clusters/$1"
     mkdir -p "clusters/$1"
@@ -140,7 +146,8 @@ function new() {
     sed -i "s/_cluster_name_/$1/g" "clusters/$1/hosts"
     cp example/config.yml "clusters/$1/config.yml"
 
-    logger debug "set version of common plugins"
+    logger debug "set versions"
+    k8sVer=$(grep 'K8S_BIN_VER=v' ezdown|cut -d'v' -f2)
     calicoVer=$(grep 'calicoVer=' ezdown|cut -d'=' -f2)
     ciliumVer=$(grep 'ciliumVer=' ezdown|cut -d'=' -f2)
     flannelVer=$(grep 'flannelVer=' ezdown|cut -d'=' -f2)
@@ -151,16 +158,18 @@ function new() {
     dashboardVer=$(grep 'dashboardVer=' ezdown|cut -d'=' -f2)
     dashboardMetricsScraperVer=$(grep 'dashboardMetricsScraperVer=' ezdown|cut -d'=' -f2)
     metricsVer=$(grep 'metricsVer=' ezdown|cut -d'=' -f2)
+    localpathProvisionerVer=$(grep 'localpathProvisionerVer=' ezdown|cut -d'=' -f2)
     nfsProvisionerVer=$(grep 'nfsProvisionerVer=' ezdown|cut -d'=' -f2)
     pauseVer=$(grep 'pauseVer=' ezdown|cut -d'=' -f2)
     promChartVer=$(grep 'promChartVer=' ezdown|cut -d'=' -f2)
-    traefikChartVer=$(grep 'traefikChartVer=' ezdown|cut -d'=' -f2)
+    kubeappsVer=$(grep 'kubeappsVer=' ezdown|cut -d'=' -f2)
     harborVer=$(grep 'HARBOR_VER=' ezdown|cut -d'=' -f2)
     registryMirror=true
 
     grep registry-mirrors /etc/docker/daemon.json > /dev/null 2>&1 || { logger debug "disable registry mirrors"; registryMirror=false; }
 
-    sed -i -e "s/__flannel__/$flannelVer/g" \
+    sed -i -e "s/__k8s_ver__/$k8sVer/g" \
+           -e "s/__flannel__/$flannelVer/g" \
 	   -e "s/__calico__/$calicoVer/g" \
 	   -e "s/__cilium__/$ciliumVer/g" \
 	   -e "s/__kube_ovn__/$kubeOvnVer/g" \
@@ -170,9 +179,10 @@ function new() {
 	   -e "s/__dns_node_cache__/$dnsNodeCacheVer/g" \
 	   -e "s/__dashboard__/$dashboardVer/g" \
 	   -e "s/__dash_metrics__/$dashboardMetricsScraperVer/g" \
+	   -e "s/__local_path_provisioner__/$localpathProvisionerVer/g" \
 	   -e "s/__nfs_provisioner__/$nfsProvisionerVer/g" \
 	   -e "s/__prom_chart__/$promChartVer/g" \
-	   -e "s/__traefik_chart__/$traefikChartVer/g" \
+	   -e "s/__kubeapps_chart__/$kubeappsVer/g" \
 	   -e "s/__harbor__/$harborVer/g" \
 	   -e "s/^ENABLE_MIRROR_REGISTRY.*$/ENABLE_MIRROR_REGISTRY: $registryMirror/g" \
 	   -e "s/__metrics__/$metricsVer/g" "clusters/$1/config.yml"
@@ -230,6 +240,20 @@ function setup() {
 
     COMMAND="ansible-playbook -i clusters/$1/hosts -e @clusters/$1/config.yml $EXTRA_ARGS playbooks/$PLAY_BOOK"
     echo "$COMMAND"
+
+    k8s_ver=$(bin/kube-apiserver --version|cut -d' ' -f2)
+    etcd_ver=v$(bin/etcd --version|grep 'etcd Version'|cut -d' ' -f3)
+    network_cni=$(grep CLUSTER_NETWORK "clusters/$1/hosts"|cut -d'"' -f2|sed 's/-//g')
+    network_cni_ver=$(grep -i "${network_cni}Ver" ezdown|cut -d'=' -f2|head -n1)
+
+    cat <<EOF
+*** Component Version *********************
+*******************************************
+*   kubernetes: ${k8s_ver}
+*   etcd: ${etcd_ver}
+*   ${network_cni}: ${network_cni_ver}
+*******************************************
+EOF
 
     logger info "cluster:$1 setup step:$2 begins in 5s, press any key to abort:\n"
     ! (read -r -t5 -n1) || { logger warn "setup abort"; return 1; }
@@ -295,7 +319,7 @@ function list() {
             else
                 echo -e "==> cluster $i:\t$c"
             fi
-            let "i++"
+            ((i++))
         fi
     done
 }
@@ -444,9 +468,24 @@ function start-aio(){
 }
 
 ### Extra functions #############################################
-EXPIRY=4800h        # default cert will expire in 200 days
-USER_TYPE=admin     # admin/view, admin=clusterrole:cluster-admin view=clusterrole:view 
-USER_NAME=user
+function renew-ca() {
+    [[ -d "clusters/$1" ]] || { logger error "invalid cluster, run 'ezctl new $1' first"; return 1; }
+
+    logger warn "WARNNING: this script should be used with greate caution"
+    logger warn "WARNNING: it will recreate CA certs and all of the others certs used in the cluster"
+
+    COMMAND="ansible-playbook -i clusters/$1/hosts -e @clusters/$1/config.yml -e CHANGE_CA=true playbooks/96.update-certs.yml -t force_change_certs"
+    echo "$COMMAND"
+    logger info "cluster:$1 process begins in 5s, press any key to abort:\n"
+    ! (read -r -t5 -n1) || { logger warn "process abort"; return 1; }
+
+    ${COMMAND} || return 1
+}
+
+
+EXPIRY="4800h"        # default cert will expire in 200 days
+USER_TYPE="admin"     # admin/view, admin=clusterrole:cluster-admin view=clusterrole:view 
+USER_NAME="user"
 function kcfg-adm() {
     OPTIND=2
     ACTION=""
@@ -543,7 +582,7 @@ function main() {
   cd "$BASE"
 
   # check bash shell
-  readlink /proc/$$/exe|grep -q "dash" && { logger error "you should use bash shell only"; exit 1; }
+  readlink /proc/$$/exe|grep -q "bash" || { logger error "you should use bash shell only"; exit 1; }
 
   # check 'ansible' executable
   which ansible > /dev/null 2>&1 || { logger error "need 'ansible', try: 'pip install ansible'"; usage; exit 1; }
@@ -622,6 +661,10 @@ function main() {
           start-aio
           ;;
       ### extra operations ##############################
+      (kca-renew)
+          [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+          renew-ca "$2"
+          ;;
       (kcfg-adm)
           [ "$#" -gt 2 ] || { usage-kcfg-adm >&2; exit 2; }
           kcfg-adm "${@:2}"

@@ -1,18 +1,4 @@
-#
-coredns_offline: "coredns_{{ corednsVer }}.tar"
+# default values
 
-metricsserver_offline: "metrics-server_{{ metricsVer }}.tar"
-
-dashboard_offline: "dashboard_{{ dashboardVer }}.tar"
-
-metricsscraper_offline: "metrics-scraper_{{ dashboardMetricsScraperVer }}.tar"
-
-nfsprovisioner_offline: "nfs-provisioner_{{ nfs_provisioner_ver }}.tar"
-
-# metallb 自动安装
-#metallb_install: "no"
-#metallbVer: "v0.7.3"
-# 模式选择: 二层 "layer2" 或者三层 "bgp"
-#metallb_protocol: "layer2"
-#metallb_offline: "metallb_{{ metallbVer }}.tar"
-#metallb_vip_pool: "192.168.1.240/29"
+# coredns 服务地址，根据SERVICE_CIDR 设置，默认选择网段第二个地址
+CLUSTER_DNS_SVC_IP: "{{ SERVICE_CIDR.split('.')[0] }}.{{ SERVICE_CIDR.split('.')[1] }}.{{ SERVICE_CIDR.split('.')[2] }}.{{ SERVICE_CIDR.split('.')[3]|int + 2 }}"

@@ -3,4 +3,4 @@ KUBE_APISERVER: "https://{{ groups['kube_master'][0] }}:{{ SECURE_PORT }}"
 
 #
 ADD_KCFG: false
-CUSTOM_EXPIRY: "438000h"
+CUSTOM_EXPIRY: "999999h"

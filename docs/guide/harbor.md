@@ -43,7 +43,6 @@ HARBOR_SELF_SIGNED_CERT: true
 # install component
 HARBOR_WITH_NOTARY: false
 HARBOR_WITH_TRIVY: false
-HARBOR_WITH_CLAIR: false
 HARBOR_WITH_CHARTMUSEUM: true
 ```
 
@@ -199,7 +198,7 @@ type: kubernetes.io/dockerconfigjson
 # 停止 harbor
  docker-compose down -v
 # 修改配置
- vim harbor.cfg
+ vim harbor.yml
 # 执行./prepare已更新配置到docker-compose.yml文件
  ./prepare
 # 启动 harbor

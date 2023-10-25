@@ -1,10 +1,6 @@
 - name: 获取是否已经安装docker
-  shell: 'systemctl status docker|grep Active || echo "NoFound"'
+  shell: 'systemctl is-active docker || echo "NoFound"'
   register: docker_svc
-
-- name: 获取是否已经安装containerd
-  shell: 'systemctl status containerd|grep Active || echo "NoFound"'
-  register: containerd_svc
 
 # 18.09.x 版本二进制名字有变化，需要做判断
 - name: 获取docker版本信息
@@ -81,7 +77,7 @@
       template: src=daemon.json.j2 dest=/etc/docker/daemon.json
     
     - name: flush-iptables
-      shell: "iptables -P INPUT ACCEPT \
+      shell: "source /etc/profile; iptables -P INPUT ACCEPT \
             && iptables -P FORWARD ACCEPT \
             && iptables -P OUTPUT ACCEPT \
             && iptables -F && iptables -X \
@@ -102,9 +98,9 @@
       tags: upgrade_docker
 
     - name: 轮询等待docker服务运行
-      shell: "systemctl status docker.service|grep Active"
+      shell: "systemctl is-active docker.service"
       register: docker_status
-      until: '"running" in docker_status.stdout'
+      until: '"active" in docker_status.stdout'
       retries: 8
       delay: 2
       tags: upgrade_docker
@@ -113,7 +109,7 @@
     - name: 配置 docker 命令软链接
       file: src={{ bin_dir }}/docker dest=/usr/bin/docker state=link
       ignore_errors: true
-  when: "'running' not in containerd_svc.stdout and 'running' not in docker_svc.stdout"
+  when: "'NoFound' in docker_svc.stdout"
     
 ## 可选 ------安装docker查询镜像 tag的小工具----
 - name: 下载 docker-tag
